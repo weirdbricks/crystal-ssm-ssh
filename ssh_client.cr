@@ -52,7 +52,7 @@ end
 
 def parse_ssh_config(target_host : String) : SshConfigEntry
   entry   = SshConfigEntry.new
-  config  = File.expand_path("~/.ssh/config")
+  config  = Path.home.join(".ssh", "config").to_s
   return entry unless File.exists?(config)
 
   current_patterns = [] of String
@@ -62,7 +62,10 @@ def parse_ssh_config(target_host : String) : SshConfigEntry
     line = raw.strip
     next if line.empty? || line.starts_with?("#")
 
-    key, _, val = line.partition(/\s+/)
+    parts = line.split(/\s+/, 2)
+    next if parts.size < 2
+    key = parts[0]
+    val = parts[1]
     val = val.strip
 
     case key.downcase
@@ -82,7 +85,7 @@ def parse_ssh_config(target_host : String) : SshConfigEntry
       when "port"
         entry.port ||= val.to_i?
       when "identityfile"
-        entry.identity_files << File.expand_path(val)
+        entry.identity_files << Path.home.join(val.lstrip("~/")).to_s
       end
     end
   end
@@ -207,9 +210,9 @@ def authenticate(session : SSH2::Session, username : String,
     [identity]
   else
     [
-      File.expand_path("~/.ssh/id_ed25519"),
-      File.expand_path("~/.ssh/id_rsa"),
-      File.expand_path("~/.ssh/id_ecdsa"),
+      Path.home.join(".ssh", "id_ed25519").to_s,
+      Path.home.join(".ssh", "id_rsa").to_s,
+      Path.home.join(".ssh", "id_ecdsa").to_s,
     ]
   end
 
