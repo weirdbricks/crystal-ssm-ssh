@@ -1,0 +1,14 @@
+version: 2.0
+shards:
+  awscr-signer:
+    git: https://github.com/weirdbricks/awscr-signer.git
+    version: 0.9.0+git.commit.2a8cc0980c9ba18ef22bf870e8be12783ee2b5ec
+
+  awscr-ssm:
+    git: https://github.com/weirdbricks/awscr-ssm.git
+    version: 0.2.0+git.commit.82ed7e770619825cc4bdd7ff18432e666c8ca60e
+
+  ssh2:
+    git: https://github.com/spider-gazelle/ssh2.cr.git
+    version: 1.7.2
+

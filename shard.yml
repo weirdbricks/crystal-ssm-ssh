@@ -1,0 +1,14 @@
+name: ssh_client
+version: 0.3.0
+authors:
+  - Lampros Chaidas
+dependencies:
+  ssh2:
+    github: spider-gazelle/ssh2.cr
+    version: "~> 1.7"
+  awscr-ssm:
+    github: weirdbricks/awscr-ssm
+  awscr-signer:
+    github: weirdbricks/awscr-signer
+crystal: ">= 1.0.0"
+license: MIT

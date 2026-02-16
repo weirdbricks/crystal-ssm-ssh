@@ -1,0 +1,20 @@
+# Crystal build artifacts
+/ssh_client
+/.crystal/
+/.shards/
+
+# Shards dependencies (installed locally)
+/lib/
+
+# Shard lock is intentionally committed, so not ignored here
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
