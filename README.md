@@ -23,7 +23,7 @@ brew install libssh2 openssl
 
 ```bash
 shards install
-crystal build ssh_client.cr -o ssh_client --release
+crystal build ssh_client.cr -o ssh_client --release --no-debug
 ```
 
 ## Usage
