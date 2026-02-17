@@ -1,6 +1,7 @@
 # ---------------------------------------------------------------------------
 # ~/.ssh/config parser
-# Supports: Host, HostName, User, Port, IdentityFile, UserKnownHostsFile
+# Supports: Host, HostName, User, Port, IdentityFile, UserKnownHostsFile,
+#           IdentitiesOnly, ServerAliveInterval
 # ---------------------------------------------------------------------------
 
 struct SshConfigEntry
@@ -9,13 +10,17 @@ struct SshConfigEntry
   property port : Int32?
   property identity_files : Array(String)
   property known_hosts_file : String?
+  property identities_only : Bool?
+  property server_alive_interval : Int32?
 
   def initialize
-    @hostname         = nil
-    @user             = nil
-    @port             = nil
-    @identity_files   = [] of String
-    @known_hosts_file = nil
+    @hostname               = nil
+    @user                   = nil
+    @port                   = nil
+    @identity_files         = [] of String
+    @known_hosts_file       = nil
+    @identities_only        = nil
+    @server_alive_interval  = nil
   end
 end
 
@@ -53,6 +58,10 @@ def parse_ssh_config(target_host : String) : SshConfigEntry
         entry.identity_files << Path.home.join(val.lstrip("~/")).to_s
       when "userknownhostsfile"
         entry.known_hosts_file ||= Path.home.join(val.lstrip("~/")).to_s
+      when "identitiesonly"
+        entry.identities_only ||= (val.downcase == "yes")
+      when "serveraliveinterval"
+        entry.server_alive_interval ||= val.to_i?
       end
     end
   end

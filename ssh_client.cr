@@ -11,8 +11,10 @@ require "./src/agent"
 require "./src/ssm"
 require "./src/auth"
 require "./src/session"
+require "./src/keepalive"
+require "./src/port_forward"
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -28,6 +30,9 @@ connection_attempts = 1     # retry count on connection failure
 debug               = false
 no_agent            = false # skip ssh-agent if true
 no_known_hosts      = false # skip known_hosts check if true
+identities_only     = false # skip agent and auto-discovery if true
+server_alive_interval = 0   # keepalive interval in seconds
+port_forwards       = [] of PortForward
 
 # SSM options
 ssm_secret_path    = nil
@@ -58,15 +63,27 @@ OptionParser.parse do |opts|
     username = v
   end
 
-  opts.on("-o OPTION", "Set an option (ConnectTimeout=N, ConnectionAttempts=N)") do |v|
+  opts.on("-o OPTION", "Set an option (ConnectTimeout=N, ConnectionAttempts=N, ServerAliveInterval=N)") do |v|
     key, _, val = v.partition("=")
     case key.strip.downcase
     when "connecttimeout"
       connect_timeout = val.strip.to_i? || 0
     when "connectionattempts"
       connection_attempts = [val.strip.to_i? || 1, 1].max
+    when "serveraliveinterval"
+      server_alive_interval = val.strip.to_i? || 0
     else
       STDERR.puts "Warning: unsupported option '#{key.strip}'"
+    end
+  end
+
+  opts.on("-L FORWARD", "Local port forward: local_port:remote_host:remote_port") do |v|
+    fwd = PortForward.parse(v)
+    if fwd
+      port_forwards << fwd
+    else
+      STDERR.puts "Error: invalid port forward spec '#{v}'"
+      exit 1
     end
   end
 
@@ -166,9 +183,12 @@ end
 
 config_entry = parse_ssh_config(host)
 
-host     = config_entry.hostname.not_nil! if config_entry.hostname
-username = config_entry.user.not_nil!     if config_entry.user && username == (ENV["USER"]? || "root")
-port     = config_entry.port.not_nil!     if config_entry.port && port == 22
+host                   = config_entry.hostname.not_nil!            if config_entry.hostname
+username               = config_entry.user.not_nil!                if config_entry.user && username == (ENV["USER"]? || "root")
+port                   = config_entry.port.not_nil!                if config_entry.port && port == 22
+identities_only      ||= config_entry.identities_only || false
+server_alive_interval  = config_entry.server_alive_interval.not_nil! if config_entry.server_alive_interval && server_alive_interval == 0
+
 if identity.nil? && !config_entry.identity_files.empty?
   identity = config_entry.identity_files.find { |f| File.exists?(f) }
 end
@@ -194,7 +214,16 @@ connection_attempts.times do |attempt|
     session = SSH2::Session.new(socket)
     begin
       check_known_hosts(session, host, port, config_entry.known_hosts_file, debug) unless no_known_hosts
-      authenticate(session, username, identity, key_data, no_agent, debug)
+      authenticate(session, username, identity, key_data, no_agent, identities_only, debug)
+
+      # Start keepalive if configured
+      start_keepalive(session, server_alive_interval, debug)
+
+      # Start local port forwards if any
+      port_forwards.each do |fwd|
+        start_port_forward(session, fwd, debug)
+      end
+
       if cmd = command
         exit run_command(session, cmd)
       else
