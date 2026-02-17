@@ -1,5 +1,5 @@
 name: ssh_client
-version: 0.3.0
+version: 0.7.0
 authors:
   - Lampros Chaidas
 dependencies:
@@ -10,5 +10,9 @@ dependencies:
     github: weirdbricks/awscr-ssm
   awscr-signer:
     github: weirdbricks/awscr-signer
+development_dependencies:
+  ameba:
+    github: crystal-ameba/ameba
+    version: "~> 1.6"
 crystal: ">= 1.0.0"
 license: MIT

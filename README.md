@@ -41,12 +41,13 @@ crystal build ssh_client.cr -o ssh_client --release --no-debug
 # Key from AWS SSM Parameter Store (credentials from environment)
 ./ssh_client --ssm-secret-path /prod/ssh/my-key user@host
 
-# Key from AWS SSM, explicit credentials
+# Key from AWS SSM, explicit credentials (including session token)
 ./ssh_client \
   --ssm-secret-path /prod/ssh/my-key \
   --aws-region eu-west-1 \
   --aws-access-key-id AKIA... \
   --aws-secret-access-key ... \
+  --aws-session-token ... \
   user@host
 
 # With retries and timeout
@@ -55,14 +56,20 @@ crystal build ssh_client.cr -o ssh_client --release --no-debug
   -o ConnectionAttempts=3 \
   user@host
 
+# Local port forwarding
+./ssh_client -i ~/.ssh/id_ed25519 \
+  -L 8080:localhost:80 \
+  user@host
+
 # Skip ssh-agent and use key file directly
-./ssh_client -A -i ~/.ssh/id_ed25519 user@host
+./ssh_client --no-agent -i ~/.ssh/id_ed25519 user@host
 
 # Skip known_hosts verification (insecure, use with caution)
 ./ssh_client --no-known-hosts -i ~/.ssh/id_ed25519 user@host
 
-# Debug mode
+# Debug/verbose mode
 ./ssh_client -d -i ~/.ssh/id_ed25519 user@host
+./ssh_client -v -i ~/.ssh/id_ed25519 user@host
 ```
 
 ## Options
@@ -71,15 +78,17 @@ crystal build ssh_client.cr -o ssh_client --release --no-debug
 Connection options:
     -p PORT, --port=PORT             Port to connect on (default: 22)
     -l USER, --login=USER            Username to log in as
-    -o OPTION                        Set an option (ConnectTimeout=N, ConnectionAttempts=N)
+    -o OPTION                        Set an option (ConnectTimeout=N, ConnectionAttempts=N, ServerAliveInterval=N)
+    -L FORWARD                       Local port forward: local_port:remote_host:remote_port
 
 Authentication options:
     -i IDENTITY, --identity=IDENTITY Path to private key file
-    -A, --no-agent                   Disable ssh-agent authentication
+    --no-agent                       Disable ssh-agent authentication
     --ssm-secret-path PATH           AWS SSM SecureString parameter name/path
     --aws-region REGION              AWS region (default: AWS_REGION env or us-east-1)
     --aws-access-key-id KEY          AWS access key ID (overrides AWS_ACCESS_KEY_ID env)
     --aws-secret-access-key SECRET   AWS secret access key (overrides AWS_SECRET_ACCESS_KEY env)
+    --aws-session-token TOKEN        AWS session token (overrides AWS_SESSION_TOKEN env)
 
 Host verification options:
     --no-known-hosts                 Skip known_hosts verification (insecure)
@@ -87,6 +96,7 @@ Host verification options:
 General options:
     -V, --version                    Show version and exit
     -d, --debug                      Enable debug output
+    -v, --verbose                    Enable debug output (alias for -d)
     -h, --help                       Show help
 ```
 
@@ -102,17 +112,20 @@ When connecting, authentication is attempted in this order:
 
 The following directives are read from `~/.ssh/config`:
 
-- `Host` — pattern matching (wildcards supported)
+- `Host` — pattern matching (simple wildcards supported; negation patterns like `!host` are not currently handled)
 - `HostName` — hostname alias resolution
 - `User` — default username
 - `Port` — default port
 - `IdentityFile` — key file path
+- `IdentitiesOnly` — restrict to configured keys only
+- `UserKnownHostsFile` — custom known hosts file path
+- `ServerAliveInterval` — keepalive interval
 
 CLI flags always take precedence over config file values.
 
 ## Host Key Verification
 
-Known hosts are checked against `~/.ssh/known_hosts` on every connection. On first connection to an unknown host, the key is automatically added (equivalent to `StrictHostKeyChecking=accept-new`). A key mismatch causes an immediate exit with an error.
+Known hosts are checked against `~/.ssh/known_hosts` on every connection. On first connection to an unknown host in an interactive terminal, you will be prompted to accept the key. In non-interactive sessions (piped input), new host keys are auto-accepted with a warning (equivalent to `StrictHostKeyChecking=accept-new`). A key mismatch causes an immediate exit with an error.
 
 Use `--no-known-hosts` to skip verification entirely (not recommended for production).
 
@@ -120,11 +133,11 @@ Use `--no-known-hosts` to skip verification entirely (not recommended for produc
 
 When using `--ssm-secret-path`, credentials are resolved in this order:
 
-1. `--aws-access-key-id` / `--aws-secret-access-key` flags
-2. `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` environment variables
+1. `--aws-access-key-id` / `--aws-secret-access-key` / `--aws-session-token` flags
+2. `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` environment variables
 3. EC2 instance metadata (IMDSv2) — works automatically on EC2 with an IAM role
 
-`AWS_SESSION_TOKEN` is supported for temporary credentials.
+`AWS_SESSION_TOKEN` is fully supported for temporary credentials (STS, SSO).
 
 ## SSM Parameter Setup
 
@@ -139,6 +152,26 @@ aws ssm put-parameter \
 ```
 
 The IAM principal needs `ssm:GetParameter` permission on the parameter.
+
+## Linting
+
+This project uses [Ameba](https://github.com/crystal-ameba/ameba) for static code analysis:
+
+```bash
+# Install (included as a dev dependency)
+shards install
+
+# Run linter
+./bin/ameba
+
+# Run on specific files
+./bin/ameba src/ssh_config.cr
+
+# Run with specific rules
+./bin/ameba --only Style/RedundantBegin
+```
+
+Configuration is in `.ameba.yml`.
 
 ## Shard Dependencies
 

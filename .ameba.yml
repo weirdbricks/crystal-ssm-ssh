@@ -1,0 +1,48 @@
+# Ameba linter configuration
+# See https://github.com/crystal-ameba/ameba for details
+
+# Excluded paths from analysis
+Globs:
+  - "**/*.cr"
+  - "!lib/**/*.cr"
+
+# Ameba rules configuration
+Lint/NotNil:
+  Enabled: true
+
+Lint/EmptyLoop:
+  Enabled: true
+
+Lint/UselessAssign:
+  Enabled: true
+  # ExcludedVars can suppress false positives
+  ExcludeTypeDeclarations: false
+
+Lint/UnusedArgument:
+  Enabled: true
+
+Style/LargeNumbers:
+  Enabled: true
+  IntMinDigits: 6
+
+Style/RedundantBegin:
+  Enabled: true
+
+Style/RedundantReturn:
+  Enabled: false  # Explicit returns improve readability in this codebase
+
+Style/NegatedConditionsInUnless:
+  Enabled: true
+
+Metrics/CyclomaticComplexity:
+  Enabled: true
+  MaxComplexity: 15  # slightly relaxed for the main entrypoint file
+
+Performance/ChainedCall:
+  Enabled: true
+
+Layout/TrailingWhitespace:
+  Enabled: true
+
+Layout/TrailingBlankLines:
+  Enabled: true

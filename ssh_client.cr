@@ -14,31 +14,32 @@ require "./src/session"
 require "./src/keepalive"
 require "./src/port_forward"
 
-VERSION = "0.6.0"
+VERSION = {{ `shards version`.chomp.stringify }}
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-host                = ""
-port                = 22
-username            = ENV["USER"]? || "root"
-identity            = nil   # path to private key file (-i)
-command             = nil   # optional one-shot command (positional args after host)
-connect_timeout     = 0     # seconds; 0 = OS default
-connection_attempts = 1     # retry count on connection failure
-debug               = false
-no_agent            = false # skip ssh-agent if true
-no_known_hosts      = false # skip known_hosts check if true
-identities_only     = false # skip agent and auto-discovery if true
-server_alive_interval = 0   # keepalive interval in seconds
-port_forwards       = [] of PortForward
+host = ""
+port = 22
+username = ENV["USER"]? || "root"
+identity = nil          # path to private key file (-i)
+command = nil           # optional one-shot command (positional args after host)
+connect_timeout = 0     # seconds; 0 = OS default
+connection_attempts = 1 # retry count on connection failure
+debug = false
+no_agent = false          # skip ssh-agent if true
+no_known_hosts = false    # skip known_hosts check if true
+identities_only = false   # skip agent and auto-discovery if true
+server_alive_interval = 0 # keepalive interval in seconds
+port_forwards = [] of SSHClient::PortForward
 
 # SSM options
-ssm_secret_path    = nil
-aws_region         = ENV["AWS_REGION"]? || ENV["AWS_DEFAULT_REGION"]? || "us-east-1"
-aws_access_key_id  = ENV["AWS_ACCESS_KEY_ID"]?
-aws_secret_key     = ENV["AWS_SECRET_ACCESS_KEY"]?
+ssm_secret_path = nil
+aws_region = ENV["AWS_REGION"]? || ENV["AWS_DEFAULT_REGION"]? || "us-east-1"
+aws_access_key_id = ENV["AWS_ACCESS_KEY_ID"]?
+aws_secret_key = ENV["AWS_SECRET_ACCESS_KEY"]?
+aws_session_token = ENV["AWS_SESSION_TOKEN"]?
 
 # ---------------------------------------------------------------------------
 # Option parsing
@@ -78,7 +79,7 @@ OptionParser.parse do |opts|
   end
 
   opts.on("-L FORWARD", "Local port forward: local_port:remote_host:remote_port") do |v|
-    fwd = PortForward.parse(v)
+    fwd = SSHClient::PortForward.parse(v)
     if fwd
       port_forwards << fwd
     else
@@ -98,7 +99,7 @@ OptionParser.parse do |opts|
     identity = v
   end
 
-  opts.on("-A", "--no-agent", "Disable ssh-agent authentication") do
+  opts.on("--no-agent", "Disable ssh-agent authentication") do
     no_agent = true
   end
 
@@ -118,6 +119,10 @@ OptionParser.parse do |opts|
     aws_secret_key = v
   end
 
+  opts.on("--aws-session-token TOKEN", "AWS session token (overrides AWS_SESSION_TOKEN env)") do |v|
+    aws_session_token = v
+  end
+
   opts.separator ""
   opts.separator "Host verification options:"
 
@@ -134,6 +139,10 @@ OptionParser.parse do |opts|
   end
 
   opts.on("-d", "--debug", "Enable debug output") do
+    debug = true
+  end
+
+  opts.on("-v", "--verbose", "Enable debug output (alias for -d)") do
     debug = true
   end
 
@@ -159,9 +168,9 @@ end
 target = ARGV.shift
 
 if target.includes?("@")
-  parts    = target.split("@", 2)
+  parts = target.split("@", 2)
   username = parts[0]
-  host     = parts[1]
+  host = parts[1]
 else
   host = target
 end
@@ -181,16 +190,24 @@ end
 # Apply ~/.ssh/config (CLI flags take precedence)
 # ---------------------------------------------------------------------------
 
-config_entry = parse_ssh_config(host)
+config_entry = SSHClient.parse_ssh_config(host)
 
-host                   = config_entry.hostname.not_nil!            if config_entry.hostname
-username               = config_entry.user.not_nil!                if config_entry.user && username == (ENV["USER"]? || "root")
-port                   = config_entry.port.not_nil!                if config_entry.port && port == 22
-identities_only      ||= config_entry.identities_only || false
-server_alive_interval  = config_entry.server_alive_interval.not_nil! if config_entry.server_alive_interval && server_alive_interval == 0
+if h = config_entry.hostname
+  host = h
+end
+if (u = config_entry.user) && username == (ENV["USER"]? || "root")
+  username = u
+end
+if (p = config_entry.port) && port == 22
+  port = p
+end
+identities_only ||= config_entry.identities_only || false
+if (interval = config_entry.server_alive_interval) && server_alive_interval == 0
+  server_alive_interval = interval
+end
 
 if identity.nil? && !config_entry.identity_files.empty?
-  identity = config_entry.identity_files.find { |f| File.exists?(f) }
+  identity = config_entry.identity_files.find { |file| File.exists?(file) }
 end
 
 # ---------------------------------------------------------------------------
@@ -198,39 +215,46 @@ end
 # ---------------------------------------------------------------------------
 
 key_data = if path = ssm_secret_path
-  fetch_ssm_key(path, aws_region, aws_access_key_id, aws_secret_key, debug)
-else
-  nil
-end
+             SSHClient.fetch_ssm_key(path, aws_region, aws_access_key_id, aws_secret_key, aws_session_token, debug)
+           else
+             nil
+           end
 
 STDERR.puts "Connecting to #{username}@#{host}:#{port}..." if debug
 
-timeout    = connect_timeout > 0 ? connect_timeout.seconds : nil
+timeout = if connect_timeout > 0
+            connect_timeout.seconds
+          else
+            STDERR.puts "Using OS default connect timeout" if debug
+            nil
+          end
+
 last_error = nil
 
 connection_attempts.times do |attempt|
   begin
-    socket  = TCPSocket.new(host, port, connect_timeout: timeout)
+    socket = TCPSocket.new(host, port, connect_timeout: timeout)
     session = SSH2::Session.new(socket)
     begin
-      check_known_hosts(session, host, port, config_entry.known_hosts_file, debug) unless no_known_hosts
-      authenticate(session, username, identity, key_data, no_agent, identities_only, debug)
+      SSHClient.check_known_hosts(session, host, port, config_entry.known_hosts_file, debug) unless no_known_hosts
+      SSHClient.authenticate(session, username, identity, key_data, no_agent, identities_only, debug)
 
       # Start keepalive if configured
-      start_keepalive(session, server_alive_interval, debug)
+      SSHClient.start_keepalive(session, server_alive_interval, debug)
 
       # Start local port forwards if any
       port_forwards.each do |fwd|
-        start_port_forward(session, fwd, debug)
+        SSHClient.start_port_forward(session, fwd, debug)
       end
 
       if cmd = command
-        exit run_command(session, cmd)
+        exit SSHClient.run_command(session, cmd)
       else
-        run_shell(session)
+        SSHClient.run_shell(session)
       end
     ensure
       session.disconnect
+      socket.close
     end
     last_error = nil
     break
@@ -249,7 +273,13 @@ connection_attempts.times do |attempt|
     STDERR.flush
     exit 1
   end
-  sleep 1.second if attempt + 1 < connection_attempts
+
+  # Exponential backoff: 1s, 2s, 4s, 8s, ... capped at 30s
+  if attempt + 1 < connection_attempts
+    backoff = Math.min(30, 2 ** attempt)
+    STDERR.puts "Retrying in #{backoff}s..." if debug
+    sleep backoff.seconds
+  end
 end
 
 if last_error
